@@ -4,8 +4,8 @@
 // @version      6.1.1
 // @description  Date/time regex fixes, emoji-safe copy, SMS Safe toggle, Dracula theme, draggable launcher + free resize.
 // @author       James (maintained by RBA Central NJ)
-// @updateURL    https://raw.githubusercontent.com/MortemFlora/Confirm-ToolkitV6.0/main/confirmationtoolkit.user.js
-// @downloadURL  https://raw.githubusercontent.com/MortemFlora/Confirm-ToolkitV6.0/main/confirmationtoolkit.user.js
+// @updateURL    https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
+// @downloadURL  https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
 // @match        https://www.enabledplus.com/*
 // @grant        GM_xmlhttpRequest
 // @connect      gist.githubusercontent.com
@@ -14,7 +14,7 @@
 
 /* ──────────────────────────────────────────────────────────────────────────
    RBA CENTRAL NJ — maintenance notes (added when reviving James's toolkit)
-   Configured for github.com/MortemFlora/Confirm-ToolkitV6.0 (auto-updates
+   Configured for github.com/GJohnston867/Confirmation-ToolkitV6.1.0 (auto-updates
         from the raw file on branch main; bump @version to push team updates).
         Contact button emails gjohnston@rbacentralnj.com (change anytime). Feedback link -> app.tinypulse.com.
    Left intentionally unchanged from James's original:
