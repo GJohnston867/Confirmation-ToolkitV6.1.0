@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Confirmation Text Toolkit 6.1
 // @namespace    http://tampermonkey.net/
-// @version      6.1.1
+// @version      6.1.2
 // @description  Date/time regex fixes, emoji-safe copy, SMS Safe toggle, Dracula theme, draggable launcher + free resize.
 // @author       James (maintained by RBA Central NJ)
 // @updateURL    https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
@@ -23,7 +23,7 @@
 
 (function () {
   'use strict';
-  console.log('✅ Toolkit v6.1.1 Loading…');
+  console.log('✅ Toolkit v6.1.2 Loading…');
 
   const FEEDBACK_FORM_URL   = 'https://app.tinypulse.com';
   const MANAGER_MESSAGE_URL = 'https://gist.githubusercontent.com/ConfirmationMGR/423dcb2729326738bd4f1e8df1754701/raw/manager-message.json';
@@ -353,7 +353,7 @@ NOTE: Replying STOP will only unsubscribe you from text messages, it will not ca
 `Thank You|Renewal by Andersen: Thank you for confirming your upcoming appointment with Renewal by Andersen. Please keep in mind this is an in home consultation. We estimate the visit to last between 60-90 minutes and we would be unable to fix or service existing units. If you need to reschedule or modify your appointment, please contact us at ${phoneNumber}. Otherwise, your appointment will remain as scheduled.
 
 We also have an opening in your area today, if you are home and available, feel free to let us know and we'll get you rescheduled with a design consultant today!`,
-`Cancel/Resch|I completely understand if you need to reschedule, but I did want to remind you that we have some great promotions this month which our design consultant would love to discuss with you. If you can't make your current appointment, I have openings tomorrow at 10 AM or 2 PM. Which time works better for you?`,
+`Cancel/Resch|Totally understand if this date doesn't work. Quick reminder, this month we have $0 down, $0 payments, and 0% interest for 18 months. If you need to reschedule, I have tomorrow at 10 AM or 2 PM open. Which works better?`,
 `Missing Info|Action Required: Before assigning your design consultant, we need to verify some details about your project to ensure it fits within our scope of work and to make the best use of your time. [Enter project question when you paste into Text Request extension].`,
 `Please Call|Renewal by Andersen: Hello ${firstName || 'there'}, this is Renewal by Andersen reaching out in regards to your upcoming scheduled appointment. We would need to speak with you briefly regarding your appointment. Please give us a call at ${phoneNumber}.
 NOTE: Replying STOP will only unsubscribe you from text messages, it will not cancel your appointment. To reschedule or cancel, please call us at ${phoneNumber}`
