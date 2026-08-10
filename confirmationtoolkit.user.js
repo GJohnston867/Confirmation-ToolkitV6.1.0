@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Confirmation Text Toolkit 6.1
 // @namespace    http://tampermonkey.net/
-// @version      6.1.3
+// @version      6.1.4
 // @description  Date/time regex fixes, emoji-safe copy, SMS Safe toggle, Dracula theme, draggable launcher + free resize.
 // @author       James (maintained by RBA Central NJ)
 // @updateURL    https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
@@ -23,7 +23,7 @@
 
 (function () {
   'use strict';
-  console.log('✅ Toolkit v6.1.3 Loading…');
+  console.log('✅ Toolkit v6.1.4 Loading…');
 
   const FEEDBACK_FORM_URL   = 'https://app.tinypulse.com';
   const MANAGER_MESSAGE_URL = 'https://gist.githubusercontent.com/ConfirmationMGR/423dcb2729326738bd4f1e8df1754701/raw/manager-message.json';
@@ -255,6 +255,13 @@
 
   // -------------- scrape --------------
   const storePhoneMap={"Chattanooga TN":"423-241-8687","Cincinnati":"513-991-7207","Georgia":"470-845-2689","Indianapolis":"317-593-5605","Knoxville":"865-419-0919","Long Island":"908-460-9975","Nashville":"615-236-6163","New Jersey":"908-858-5268","San Francisco":"415-796-9036","South Bend":"574-337-3288","Toronto":"877-627-4031","Westchester":"631-319-8317"};
+  // v6.1.4 — per-store template overrides. Key = lowercase store, matched as a case-insensitive substring of the
+  // detected store name, so ONLY that market sees its override; every other store keeps the default template text.
+  const STORE_TEMPLATE_OVERRIDES = {
+    toronto: {
+      'Cancel/Resch': `Totally understand if that date doesn't work. Just a quick reminder: this month, you can save $500 on any entry door, patio door, or window with our Mix and Match Savings Event. If you purchase any two entry or patio doors, you'll save $1,000. Or, if you replace an entry door, a patio door, and windows, you'll save $2,000. I have openings tomorrow at 10:00 AM and 2:00 PM. Which time works better for you?`
+    }
+  };
   const fuzzyPhone=(store)=>storePhoneMap[store]||'513-991-7207';
 
   function parseStoreFromLabel(val){
@@ -358,7 +365,11 @@ We also have an opening in your area today, if you are home and available, feel 
 `Please Call|Renewal by Andersen: Hello ${firstName || 'there'}, this is Renewal by Andersen reaching out in regards to your upcoming scheduled appointment. We would need to speak with you briefly regarding your appointment. Please give us a call at ${phoneNumber}.
 NOTE: Replying STOP will only unsubscribe you from text messages, it will not cancel your appointment. To reschedule or cancel, please call us at ${phoneNumber}`
     ];
-    const msgs = msgsText.map(s=>{const [title,...rest]=s.split('|');return {title,text:rest.join('|')};});
+    // v6.1.4 — apply any per-store overrides for this market before rendering the built-in templates
+    const _sk = String(storeName||'').toLowerCase();
+    const _ovKey = Object.keys(STORE_TEMPLATE_OVERRIDES).find(k=>_sk.includes(k));
+    const _ov = _ovKey ? STORE_TEMPLATE_OVERRIDES[_ovKey] : null;
+    const msgs = msgsText.map(s=>{const [title,...rest]=s.split('|');const base=rest.join('|');return {title, text:(_ov && _ov[title]!=null) ? _ov[title] : base};});
 
     const list=JSON.parse(localStorage.getItem('ctk_custom_templates')||'[]');
     list.forEach(tpl=>{
