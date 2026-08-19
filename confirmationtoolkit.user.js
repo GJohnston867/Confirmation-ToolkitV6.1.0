@@ -1,14 +1,15 @@
 // ==UserScript==
-// @name         Confirmation Text Toolkit 6.1
+// @name         Confirmation Text Toolkit 6.2
 // @namespace    http://tampermonkey.net/
-// @version      6.1.4
-// @description  Date/time regex fixes, emoji-safe copy, SMS Safe toggle, Dracula theme, draggable launcher + free resize.
-// @author       James (maintained by RBA Central NJ)
+// @version      6.2.4
+// @description  Date/time regex fixes, emoji-safe copy, SMS Safe toggle, Dracula theme, draggable launcher + free resize + one-click MSG Confirm button (top): Enable+ Message-Confirm + send to monday board, with confirm pop-up.
+// @author       Hammad (maintained by RBA Central NJ)
 // @updateURL    https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
 // @downloadURL  https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
 // @match        https://www.enabledplus.com/*
 // @grant        GM_xmlhttpRequest
 // @connect      gist.githubusercontent.com
+// @connect      api.monday.com
 // @run-at       document-start
 // ==/UserScript==
 
@@ -23,11 +24,236 @@
 
 (function () {
   'use strict';
-  console.log('✅ Toolkit v6.1.4 Loading…');
+  const CTK_VER = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) ? GM_info.script.version : '6.2.4';
+  console.log('✅ Confirmation Toolkit v' + CTK_VER + ' loading…');
 
   const FEEDBACK_FORM_URL   = 'https://app.tinypulse.com';
   const MANAGER_MESSAGE_URL = 'https://gist.githubusercontent.com/ConfirmationMGR/423dcb2729326738bd4f1e8df1754701/raw/manager-message.json';
   const MESSAGE_REFRESH_MS  = 60_000;
+
+  // ===================== Send to Monday (v6.1.5) =====================
+  // Adds the "MSG CONFIRM" button. It pushes the current Enable+ lead to the
+  // "Enable+ Lead Button Clicks" monday.com board (board 18427059810).
+  //
+  // ONE-TIME SETUP — paste your monday.com API token:
+  //   monday.com  ->  click your avatar (bottom-left)  ->  Developers
+  //   ->  "My Access Tokens"  ->  copy the token.
+  //   The FIRST time you click "Send Issued Lead Form for MSG Confirms" it will ask for the token, then
+  //   remember it. It is stored ONLY in this browser (localStorage) and is
+  //   sent ONLY to api.monday.com. No one else can see it.
+  const MONDAY = {
+    API_URL:  'https://api.monday.com/v2',
+    BOARD_ID: 18427059810,
+    COLS: {
+      link:    'link_mm6by46t',   // Enable+ Link  (link)
+      address: 'text_mm6bkn27',   // Address       (text)
+      phone:   'phone_mm6bbyjq',  // Cell Phone    (phone)
+      email:   'email_mm6bwmab',  // Email         (email)
+      source:  'text_mm6bdeh1',   // Lead Source   (text)
+      leadId:  'text_mm6bddk4',   // Lead ID       (text)
+      store:   'text_mm6b8drm',   // Store                (text)
+      agent:   'text_mm6bdyav',   // Confirmed By (Agent) (text)
+      date:    'date_mm6bt2bp'    // Date Added           (date)
+    }
+  };
+
+  function getMondayToken(){
+    let t = localStorage.getItem('ctk_monday_token') || '';
+    if(!t){
+      t = (window.prompt('Paste your monday.com API token (stored locally, only sent to api.monday.com):') || '').trim();
+      if(t) localStorage.setItem('ctk_monday_token', t);
+    }
+    return t;
+  }
+
+  function collectMondayLead(){
+    const base = collectLeadData(); // {firstName, address, cityStateZip, storeName, latestAppointment}
+    const fullName =
+      document.querySelector('#leadinformation a')?.textContent?.trim() ||
+      base.firstName || 'Enable+ Lead';
+
+    const bodyTxt = document.body?.innerText || '';
+    const lines = bodyTxt.split(/\r?\n/).map(s => s.trim());
+    const lineVal = (label) => {
+      const re = new RegExp('^' + label + '\\s*:?\\s*(.+)$', 'i');
+      for (const ln of lines){ const m = ln.match(re); if (m && m[1].trim()) return m[1].trim(); }
+      return '';
+    };
+
+    let phone  = lineVal('Cell');
+    let email  = lineVal('Email');
+    let source = lineVal('Source');
+
+    // fallbacks if the label layout differs
+    if(!email){ const m = bodyTxt.match(/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i); if(m) email = m[0]; }
+    if(!phone){ const m = bodyTxt.match(/\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/); if(m) phone = m[0]; }
+
+    const address = [base.address, base.cityStateZip].filter(Boolean).join(', ');
+    const leadId  = new URLSearchParams(location.search).get('L')
+                  || document.querySelector('#leadid, .lead-id')?.textContent?.trim() || '';
+    const link  = location.href;
+    // Store - match the store selector against the toolkit's known store list
+    // (robust against label ordering); fall back to the scraped storeName.
+    const KNOWN_STORES = ['Chattanooga','Cincinnati','Georgia','Indianapolis','Knoxville','Long Island','Nashville','New Jersey','San Francisco','South Bend','Toronto','Westchester'];
+    const storeRaw = ((document.querySelector('#selectedstorename')?.textContent || '') + ' ' + (base.storeName || '')).replace(/\u00a0/g,' ');
+    const store = (KNOWN_STORES.find(k => storeRaw.toLowerCase().includes(k.toLowerCase())) || (base.storeName || '')).trim();
+
+    // Confirming agent - pulled from the opener line the toolkit fills in:
+    //   "My name is @MGMT - <Agent Name> calling with Renewal by Andersen"
+    // Confirming agent = the "@ROLE - Name" shown next to the store in the Enable+
+    // header (#selectedstorename), e.g. "@MGMT - Hammad Griffin - Georgia". Drop the
+    // store segment (and any company text) and keep the rest -> "@MGMT Hammad Griffin".
+    // Always present, even on Review-mode leads where the opener line is not shown.
+    let agent = '';
+    {
+      const rawSel = (document.querySelector('#selectedstorename')?.textContent || '')
+        .replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+      if (rawSel) {
+        let segs = rawSel.split(/[-|\u2013\u2014]/).map(x => x.trim()).filter(Boolean);
+        segs = segs.filter(x => !(store && x.toLowerCase().includes(store.toLowerCase())));
+        segs = segs.filter(x => !/^(rba|renewal|andersen|moore|holdings|central|enable)\b/i.test(x));
+        agent = segs.join(' ').replace(/\s+/g, ' ').trim();   // -> "@MGMT Hammad Griffin"
+      }
+      if (!agent) {
+        const m = bodyTxt.match(/My name is\s*(@[A-Za-z]+)?\s*-?\s*([A-Za-z][A-Za-z.'\- ]+?)\s+calling/i);
+        if (m) { const p = (m[1] || '').trim(); const n = (m[2] || '').trim(); agent = (p ? p + ' ' : '') + n; }
+      }
+    }
+    agent = agent.trim();
+
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+    return { fullName, phone, email, source, address, leadId, link, store, agent, dateStr };
+  }
+
+  function setMondayBtn(btn, label, state){ // state: true=ok, false=err, null=busy
+    if(!btn) return;
+    btn.textContent = label;
+    btn.disabled = (state === null);
+    btn.style.opacity = (state === null) ? '0.7' : '1';
+    if(state === true || state === false){
+      setTimeout(() => { btn.textContent = 'MSG Confirm'; btn.style.opacity = '1'; btn.disabled = false; }, 2600);
+    }
+  }
+
+  function sendToMonday(btn){
+    if(typeof GM_xmlhttpRequest === 'undefined'){
+      alert('This button needs Tampermonkey (GM_xmlhttpRequest is missing). Please make sure the script is installed in Tampermonkey.');
+      return;
+    }
+    const token = getMondayToken();
+    if(!token){ setMondayBtn(btn, 'Token needed', false); return; }
+
+    const L = collectMondayLead();
+    if(!L.fullName){ setMondayBtn(btn, 'No lead found', false); return; }
+
+    const cols = {};
+    cols[MONDAY.COLS.link] = { url: L.link, text: 'Open in Enable+' };
+    if(L.address) cols[MONDAY.COLS.address] = L.address;
+    if(L.phone)   cols[MONDAY.COLS.phone]   = { phone: L.phone.replace(/\D/g,''), countryShortName: 'US' };
+    if(L.email)   cols[MONDAY.COLS.email]   = { email: L.email, text: L.email };
+    if(L.source)  cols[MONDAY.COLS.source]  = L.source;
+    if(L.leadId)  cols[MONDAY.COLS.leadId]  = L.leadId;
+    if(L.store)   cols[MONDAY.COLS.store]   = L.store;
+    if(L.agent)   cols[MONDAY.COLS.agent]   = L.agent;
+    cols[MONDAY.COLS.date] = { date: L.dateStr };
+
+    const query = 'mutation ($board: ID!, $name: String!, $cols: JSON!) {'
+                + ' create_item (board_id: $board, item_name: $name, column_values: $cols) { id } }';
+    const variables = { board: String(MONDAY.BOARD_ID), name: L.fullName, cols: JSON.stringify(cols) };
+
+    setMondayBtn(btn, 'Sending…', null);
+    GM_xmlhttpRequest({
+      method: 'POST',
+      url: MONDAY.API_URL,
+      headers: { 'Content-Type': 'application/json', 'Authorization': token, 'API-Version': '2024-10' },
+      data: JSON.stringify({ query, variables }),
+      onload: (r) => {
+        let ok = false, errMsg = '';
+        try {
+          const j = JSON.parse(r.responseText);
+          if (j.errors && j.errors.length) errMsg = j.errors.map(e => e.message).join('; ');
+          else if (j.data && j.data.create_item && j.data.create_item.id) ok = true;
+          else errMsg = 'Unexpected response from monday.com';
+        } catch(e){ errMsg = 'Could not read monday.com response'; }
+
+        if (ok){
+          setMondayBtn(btn, '✓ Confirmed + Sent', true);
+          playSound();
+        } else {
+          setMondayBtn(btn, '✕ Failed', false);
+          if (/unauthor|authentication|invalid token|401/i.test(errMsg)){
+            localStorage.removeItem('ctk_monday_token');
+            alert('monday.com rejected the token (unauthorized). It has been cleared — click "Send Issued Lead Form for MSG Confirms" again to paste a new one.\n\nDetails: ' + errMsg);
+          } else {
+            alert('Could not send this lead to monday.com:\n\n' + errMsg);
+          }
+        }
+      },
+      onerror: () => {
+        setMondayBtn(btn, '✕ Network error', false);
+        alert('Network error reaching api.monday.com.\nCheck your connection, and that Tampermonkey allows api.monday.com (the @connect line at the top of the script).');
+      }
+    });
+  }
+  // =================== end Send to Monday ===================
+
+  // v6.2.1 — "MSG Confirm" Quick Copy tile: invoke Enable+'s own Message-Confirm
+  // control so it logs exactly like a manual click (the "Message Confirm - <appt>"
+  // entry plus the auto "Msg Confirmed-<Source>" note).
+  function doEnableMsgConfirm(chip){
+    const orig = chip ? chip.textContent : '';
+    const btn = document.querySelector('#messageConfirmButton')
+      || Array.from(document.querySelectorAll('input[type=button], input[type=submit], button'))
+           .find(e => /message[\s-]?confirm/i.test((e.value || e.textContent || '')));
+    if(!btn){
+      if(chip){ chip.textContent='Not on confirm screen'; setTimeout(()=>chip.textContent=orig,1800); }
+      else alert('Enable+ Message-Confirm button not found. Open the confirm screen first.');
+      return;
+    }
+    showMsgConfirmModal(function(){
+      btn.click();                 // Enable+ native Message-Confirm (logs it, same as clicking by hand)
+      playSound();
+      // v6.2.4 — one click also pushes this lead to the monday.com board
+      sendToMonday(chip);          // drives button status: Sending… → ✓ Confirmed + Sent / ✕ Failed
+    });
+  }
+
+  // v6.2.2 - styled confirm dialog for the MSG Confirm tile (populated with live lead data)
+  function showMsgConfirmModal(onYes){
+    let L = {}, appt = '';
+    try { L = collectMondayLead(); } catch(e){}
+    try { appt = (collectLeadData().latestAppointment) || ''; } catch(e){}
+    const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const nm = esc(L.fullName || 'this lead');
+    const apptTxt = esc(appt);
+    const addr = esc(L.address || '');
+    const store = esc(L.store || '');
+    const agent = esc(L.agent || '');
+    const dim = document.createElement('div');
+    dim.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:10000001;font-family:Tahoma,Verdana,Segoe UI,system-ui,sans-serif;';
+    dim.innerHTML =
+      '<div style="width:330px;background:#F1F4DD;border:1px solid #5a5a5a;border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,.4);overflow:hidden;">'
+      + '<div style="background:#009612;color:#fff;font-weight:900;font-size:15px;padding:11px 14px;">MSG Confirm this lead?</div>'
+      + '<div style="padding:14px;color:#000;font-size:13px;line-height:1.5;">This runs <b>Message-Confirm</b> in Enable+ for:'
+      +   '<div style="background:#fff;border:1px solid #cdd3b8;border-radius:6px;padding:10px 12px;margin:6px 0 12px;">'
+      +     '<div style="font-weight:900;font-size:14px;margin-bottom:2px;">' + nm + (apptTxt ? (' — ' + apptTxt) : '') + '</div>'
+      +     (addr ? ('<div style="color:#333;font-size:12px;">' + addr + '</div>') : '')
+      +     ((store||agent) ? ('<div style="color:#333;font-size:12px;">' + (store ? ('Store: ' + store) : '') + (store&&agent ? ' • ' : '') + (agent||'') + '</div>') : '')
+      +   '</div>'
+      +   '<div style="color:#5C3D00;background:#FFF3CD;border:1px solid #F0A500;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:700;">This writes to the lead — logs the Message Confirm + note (just like clicking by hand), and sends the lead form to the monday.com board.</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:10px;justify-content:flex-end;padding:12px 14px;background:#E6EED1;border-top:1px solid #cdd3b8;">'
+      +   '<button id="ctk-mc-cancel" style="font-family:inherit;font-weight:900;font-size:13px;border-radius:6px;cursor:pointer;padding:9px 14px;border:1px solid #7A7A7A;background:#DFDFDF;color:#000;box-shadow:inset 1px 1px #fff, inset -1px -1px #4a4a4a;">Cancel</button>'
+      +   '<button id="ctk-mc-go" style="font-family:inherit;font-weight:900;font-size:13px;border-radius:6px;cursor:pointer;padding:9px 14px;border:1px solid #0E7A0D;background:#0E7A0D;color:#fff;">Yes, MSG Confirm</button>'
+      + '</div></div>';
+    document.body.appendChild(dim);
+    const close = () => dim.remove();
+    dim.addEventListener('click', (e) => { if(e.target === dim) close(); });
+    dim.querySelector('#ctk-mc-cancel').onclick = close;
+    dim.querySelector('#ctk-mc-go').onclick = () => { close(); try { onYes && onYes(); } catch(e){ console.error(e); } };
+  }
 
   // ---------------- prefs ----------------
   let soundEnabled     = localStorage.getItem('ctk_sound') !== 'false';
@@ -561,7 +787,7 @@ NOTE: Replying STOP will only unsubscribe you from text messages, it will not ca
       if(parts.length>=2){ const fullName=parts[1]; userName=(fullName.split(' ')[0]||''); const h=new Date().getHours(); greeting=h<12?'Good Morning':h<17?'Good Afternoon':'Good Evening'; }
     }
     header.innerHTML=`
-      <div style="font-weight:900;">Confirmation Toolkit 6.1 • ${storeName}</div>
+      <div style="font-weight:900;">Confirmation Toolkit ${CTK_VER} • ${storeName}</div>
       ${userName?`<div style="margin-top:4px;font-size:${fs.label}px;font-weight:700;opacity:.95;">${greeting}, ${userName}!</div>`:''}
       <span class="ctk-close" title="Close">✕</span>`;
     popup.appendChild(header);
@@ -680,6 +906,23 @@ NOTE: Replying STOP will only unsubscribe you from text messages, it will not ca
       body.appendChild(warn);
     }
 
+    // v6.2.4 — MSG Confirm moved to the top: one click runs Enable+'s Message-Confirm AND sends the lead form to the monday.com board
+    const msgConfirmBtn = document.createElement('button');
+    msgConfirmBtn.type = 'button';
+    msgConfirmBtn.className = 'ctk-btn ctk-msgconfirm-btn';
+    msgConfirmBtn.textContent = 'MSG Confirm';
+    msgConfirmBtn.title = 'One click: confirms this lead in Enable+ (native Message-Confirm) AND sends the lead form to the monday.com board';
+    msgConfirmBtn.style.cssText = 'display:block;width:calc(100% - 24px);margin:12px 12px 0 12px;min-height:46px;height:auto;padding:8px 10px;line-height:1.15;font-weight:900;cursor:pointer;background:#0E7A0D;color:#fff;border:1px solid #0E7A0D;border-radius:6px;';
+    msgConfirmBtn.addEventListener('click', () => doEnableMsgConfirm(msgConfirmBtn));
+    body.appendChild(msgConfirmBtn);
+
+    // v6.2.4 — caption under the MSG Confirm button
+    const msgConfirmNote = document.createElement('div');
+    msgConfirmNote.className = 'ctk-msgconfirm-note';
+    msgConfirmNote.textContent = 'Only use for a lead that would normally need a reply';
+    msgConfirmNote.style.cssText = 'margin:6px 12px 0 12px;font-size:12px;font-weight:700;font-style:italic;text-align:center;opacity:.85;';
+    body.appendChild(msgConfirmNote);
+
     // Manager message
     const msgBox=document.createElement('div'); msgBox.className='mgr-msg-box';
     msgBox.innerHTML=`<div class="mgr-msg-header">Today's Message</div>
@@ -708,6 +951,8 @@ NOTE: Replying STOP will only unsubscribe you from text messages, it will not ca
       });
       chips.appendChild(chip);
     });
+    // v6.2.4 — MSG Confirm moved out of Quick Copy to the top button (see above)
+
     body.appendChild(quickLabel); body.appendChild(chips);
 
     // Notepad
