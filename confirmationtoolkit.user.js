@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Confirmation Text Toolkit 6.2
 // @namespace    http://tampermonkey.net/
-// @version      6.2.5
-// @description  Date/time regex fixes, emoji-safe copy, SMS Safe toggle, Dracula theme, draggable launcher + free resize + one-click MSG Confirm button (top): Enable+ Message-Confirm + send to monday board, with confirm pop-up.
+// @version      7.3.1
+// @description  Date/time regex fixes, emoji-safe copy, SMS Safe toggle, Dracula theme, draggable launcher + free resize + Pull Up Form button (bottom) linking to the monday Pull Up Request form.
 // @author       Hammad (maintained by RBA Central NJ)
 // @updateURL    https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
 // @downloadURL  https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
@@ -23,10 +23,61 @@
 
 (function () {
   'use strict';
-  const CTK_VER = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) ? GM_info.script.version : '6.2.5';
+  const CTK_VER = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) ? GM_info.script.version : '7.3.1';
   console.log('✅ Confirmation Toolkit v' + CTK_VER + ' loading…');
 
   const FEEDBACK_FORM_URL   = 'https://app.tinypulse.com';
+  // v6.4.0 — monday "Pull up Request Form" (board 18041809916).
+  // PULL_UP_FORM_URL must be the WEB form ('https://forms.monday.com/forms/<token>')
+  // so the fields can be pre-filled. The mndy.onelink.me link is a mobile deep-link
+  // and will NOT accept pre-fill params — keep it only as the fallback below.
+  const PULL_UP_FORM_URL     = 'https://forms.monday.com/forms/1f1451588a12b259fec1b62c46bb4819?r=use1';
+  const PULL_UP_FALLBACK_URL = 'https://mndy.onelink.me/jkGO/zfea9oce';
+
+  // v7.3.0 — monday "Rep to Result & Appointment Result Change" (board 18401003837).
+  // One form serves both requests; the Request Type field selects which branch shows.
+  // Territory here uses the same full labels as the OB form, so OB_TERRITORY_MAP is reused.
+  const ARC_FORM_URL = 'https://forms.monday.com/forms/49278cceb230f58458c2e58dd630fb90?r=use1';
+
+  // v6.8.0 — monday "Cancelled Leads Form" (board 2492150645)
+  const CAL_FORM_URL = 'https://forms.monday.com/forms/a84486242555294d3554f55e7df7a511?r=use1';
+
+  // Enable+ store name -> Territory labels on the Cancelled Leads form (Toronto = GTA here)
+  const CAL_TERRITORY_MAP = {
+    'Chattanooga':'Chattanooga','Cincinnati':'Cincinnati','Georgia':'Georgia',
+    'Indianapolis':'Indianapolis','Knoxville':'Knoxville','Long Island':'Long Island',
+    'Nashville':'Nashville','New Jersey':'New Jersey','San Francisco':'San Francisco',
+    'South Bend':'South Bend','Toronto':'GTA','Westchester':'Westchester'
+  };
+  const CAL_APPT_TIMES = ['10:00 AM','10:30 AM','11:00 AM','2:00 PM','2:30 PM','3:00 PM','3:30 PM','6:30 PM','7:00 PM','7:30 PM'];
+  const CAL_REASONS = ['Cannot Afford','Does not have 90 minutes','Not interested at this time','ORA','ORA due to capacity','Sales rep schedule change','Schedule conflict','Spouse is no longer available','Unconfirmed'];
+
+  // v6.7.0 — monday "Cancel Save" form (board 6538004672)
+  const CS_FORM_URL = 'https://forms.monday.com/forms/4ebb9d22e9060fee95a80cb61225d2b6?r=use1';
+
+
+  // v7.3.1 - Coach auto-fill map removed to keep employee names out of the public repo;
+  // the Coach field on the Cancel Save form is selected by the agent instead.
+
+  // v6.6.0 — monday "Confirmation Outbound SETS" form (board 2052644894)
+  const OB_FORM_URL = 'https://forms.monday.com/forms/52108e04f57489584a6dd4d28e3126dc?r=use1';
+
+  // Enable+ store name -> the "What Territory?" labels on the OB form
+  const OB_TERRITORY_MAP = {
+    'Chattanooga':'Chattanooga, TN (792)', 'Cincinnati':'Cincinnati-Dayton OH (576)',
+    'Georgia':'Atlanta, GA (930)',         'Indianapolis':'Indianapolis, IN (867)',
+    'Knoxville':'Knoxville, TN (790)',     'Long Island':'Long Island, NY (800)',
+    'Nashville':'Nashville, TN (791)',     'New Jersey':'New Jersey-New York Metro (535)',
+    'San Francisco':'San Francisco, CA (890)', 'South Bend':'South Bend, IN (868)',
+    'Toronto':'Toronto, Ontario (914)',    'Westchester':'Westchester, NY (534)'
+  };
+
+  // Enable+ store name -> the Store dropdown labels on the Pull Up form
+  const PULLUP_STORE_MAP = {
+    'Chattanooga':'Chatt', 'Cincinnati':'Cincy', 'Georgia':'GA', 'Indianapolis':'Indy',
+    'Knoxville':'Knox', 'Long Island':'LI', 'Nashville':'Nash', 'San Francisco':'SF',
+    'South Bend':'SB', 'Toronto':'GTA', 'Westchester':'WC', 'New Jersey':'NJ'
+  };
   const MANAGER_MESSAGE_URL = 'https://gist.githubusercontent.com/ConfirmationMGR/423dcb2729326738bd4f1e8df1754701/raw/manager-message.json';
   const MESSAGE_REFRESH_MS  = 60_000;
 
@@ -136,6 +187,273 @@
     setMondayBtn(btn, '\u2713 Form opened', true);
   }
   // =================== end Send to Monday ===================
+
+  // =================== Pull Up Request (v6.4.0) ===================
+  // Scrapes the current Enable+ lead, shows a pre-filled review card in the toolkit,
+  // and on Submit opens the monday Pull up Request Form with every field pre-filled.
+
+  function collectPullUpData(){
+    const base = collectLeadData();
+    const bodyTxt = document.body?.innerText || '';
+
+    // Homeowner last name — prefer the linked name in #leadinformation
+    let hoLast = '';
+    const fullNm = (document.querySelector('#leadinformation a')?.textContent || '').replace(/\s+/g,' ').trim();
+    if (fullNm){
+      const parts = fullNm.replace(/\s*\+\s*$/,'').split(' ').filter(Boolean);
+      hoLast = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+    }
+    if (!hoLast && base.firstName) hoLast = base.firstName;
+
+    // Store -> form label
+    const KNOWN = Object.keys(PULLUP_STORE_MAP);
+    const storeRaw = ((document.querySelector('#selectedstorename')?.textContent || '') + ' ' + (base.storeName || '')).replace(/\u00a0/g,' ');
+    const storeLong = KNOWN.find(k => storeRaw.toLowerCase().includes(k.toLowerCase())) || '';
+    const store = PULLUP_STORE_MAP[storeLong] || '';
+
+    // Confirming agent (same logic as the monday sender)
+    let agent = '';
+    {
+      const rawSel = (document.querySelector('#selectedstorename')?.textContent || '')
+        .replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
+      if (rawSel){
+        let segs = rawSel.split(/[-|\u2013\u2014]/).map(x=>x.trim()).filter(Boolean);
+        segs = segs.filter(x => !(storeLong && x.toLowerCase().includes(storeLong.toLowerCase())));
+        segs = segs.filter(x => !/^(rba|renewal|andersen|moore|holdings|central|enable)\b/i.test(x));
+        agent = segs.join(' ').replace(/@\w+\s*/,'').replace(/\s+/g,' ').trim();
+      }
+      if (!agent){
+        const m = bodyTxt.match(/My name is\s*(@[A-Za-z]+)?\s*-?\s*([A-Za-z][A-Za-z.'\- ]+?)\s+calling/i);
+        if (m) agent = (m[2]||'').trim();
+      }
+    }
+
+    // Current appointment date -> YYYY-MM-DD for the monday date field
+    let apptISO = '', apptRaw = (base.latestAppointment || '').trim();
+    {
+      const m = apptRaw.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (m){
+        let [, mo, da, yr] = m;
+        if (yr.length === 2) yr = '20' + yr;
+        apptISO = `${yr}-${String(mo).padStart(2,'0')}-${String(da).padStart(2,'0')}`;
+      }
+    }
+
+    return { agent, hoLast, store, apptISO, apptRaw, link: location.href };
+  }
+
+  function collectOBData(){
+    const base = collectLeadData();
+    const bodyTxt = document.body?.innerText || '';
+
+    let hoLast = '';
+    const fullNm = (document.querySelector('#leadinformation a')?.textContent || '').replace(/\s+/g,' ').trim();
+    if (fullNm){
+      const parts = fullNm.replace(/\s*\+\s*$/,'').split(' ').filter(Boolean);
+      hoLast = parts.length > 1 ? parts[parts.length-1] : parts[0];
+    }
+    if (!hoLast && base.firstName) hoLast = base.firstName;
+
+    const KNOWN = Object.keys(OB_TERRITORY_MAP);
+    const storeRaw = ((document.querySelector('#selectedstorename')?.textContent || '') + ' ' + (base.storeName || '')).replace(/\u00a0/g,' ');
+    const storeLong = KNOWN.find(k => storeRaw.toLowerCase().includes(k.toLowerCase())) || '';
+    const territory = OB_TERRITORY_MAP[storeLong] || '';
+
+    let agent = '';
+    {
+      const rawSel = (document.querySelector('#selectedstorename')?.textContent || '')
+        .replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
+      if (rawSel){
+        let segs = rawSel.split(/[-|\u2013\u2014]/).map(x=>x.trim()).filter(Boolean);
+        segs = segs.filter(x => !(storeLong && x.toLowerCase().includes(storeLong.toLowerCase())));
+        segs = segs.filter(x => !/^(rba|renewal|andersen|moore|holdings|central|enable)\b/i.test(x));
+        agent = segs.join(' ').replace(/@\w+\s*/,'').replace(/\s+/g,' ').trim();
+      }
+      if (!agent){
+        const m = bodyTxt.match(/My name is\s*(@[A-Za-z]+)?\s*-?\s*([A-Za-z][A-Za-z.'\- ]+?)\s+calling/i);
+        if (m) agent = (m[2]||'').trim();
+      }
+    }
+
+    // Appointment date + time -> datetime-local value
+    let apptLocal = '';
+    const raw = (base.latestAppointment || '').trim();
+    {
+      const dm = raw.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (dm){
+        let [, mo, da, yr] = dm;
+        if (yr.length === 2) yr = '20' + yr;
+        let hh = '10', mi = '00';
+        const tm = raw.match(/(\d{1,2}):(\d{2})\s*([AaPp])?\.?[Mm]?/);
+        if (tm){
+          hh = parseInt(tm[1], 10); mi = tm[2];
+          const ap = (tm[3]||'').toLowerCase();
+          if (ap === 'p' && hh < 12) hh += 12;
+          if (ap === 'a' && hh === 12) hh = 0;
+          hh = String(hh).padStart(2,'0');
+        }
+        apptLocal = `${yr}-${String(mo).padStart(2,'0')}-${String(da).padStart(2,'0')}T${hh}:${mi}`;
+      }
+    }
+
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+    // Same-day / next-day suggestion vs the appointment
+    let sdnd = '';
+    if (apptLocal){
+      const a = apptLocal.slice(0,10);
+      const diff = Math.round((new Date(a) - new Date(today)) / 86400000);
+      sdnd = (diff === 0 || diff === 1) ? 'YES' : 'NO';
+    }
+
+    return { agent, hoLast, territory, apptLocal, today, sdnd, link: location.href };
+  }
+
+  // ---------- generic: open the pre-filled monday form in a new tab ----------
+  // Mirrors how the old MSG Confirm button worked: build the pre-fill URL from the
+  // live Enable+ lead, open the real monday form, agent reviews and hits Submit.
+  function openMondayFormModal(opts){
+    // opts: {id, title, color, url, params, chip}
+    const sep  = opts.url.indexOf('?') >= 0 ? '&' : '?';
+    const full = opts.url + sep + opts.params.toString();
+    window.open(full, '_blank', 'noopener');
+    flashChip(opts.chip, '\u2713 Opened');
+  }
+
+  // brief visual ack on the Quick Forms chip that was clicked
+  function flashChip(chip, label){
+    if (!chip) return;
+    const orig = chip.textContent;
+    chip.textContent = label;
+    chip.style.opacity = '0.75';
+    setTimeout(() => { chip.textContent = orig; chip.style.opacity = '1'; }, 1200);
+  }
+
+  // ---------- Pull Up ----------
+  function showPullUpForm(chip){
+    const D = collectPullUpData();
+    const p = new URLSearchParams();
+    if (D.agent)   p.set('name', D.agent);
+    if (D.hoLast)  p.set('text_mm2pvk69', D.hoLast);
+    if (D.store)   p.set('multi_selectd1ynwxrl', D.store);
+    if (D.link)    p.set('linkle8n5mfg', D.link);
+    if (D.apptISO) p.set('date_mm2tax9y', D.apptISO);
+    openMondayFormModal({ id:'ctk-pu-wrap', title:'Pull Up Request', color:'#0B4DA2',
+      url: (/PASTE_TOKEN_HERE/.test(PULL_UP_FORM_URL) ? PULL_UP_FALLBACK_URL : PULL_UP_FORM_URL), params:p, chip  });
+  }
+
+  // ---------- OB Set ----------
+  function showOBForm(chip){
+    const D = collectOBData();
+    const p = new URLSearchParams();
+    if (D.agent)     p.set('status1', D.agent);
+    if (D.hoLast)    p.set('text_mkspg1wc', D.hoLast);
+    if (D.territory) p.set('dropdown9', D.territory);
+    if (D.apptLocal) p.set('appt_date', D.apptLocal.replace('T',' '));
+    if (D.today)     p.set('date4', D.today);
+    if (D.sdnd)      p.set('status7', D.sdnd);
+    if (D.link)      p.set('text4', D.link);
+    p.set('checkbox1', 'NO');
+    openMondayFormModal({ id:'ctk-ob-wrap', title:'OB Set — Confirmation Outbound', color:'#0E7A0D',
+      url: OB_FORM_URL, params:p, chip  });
+  }
+
+  // ---------- Same Day Cancel Save ----------
+  function showCancelSaveForm(chip){
+    const D = collectOBData();
+    const coach = ''; // v7.3.1 - no coach auto-fill; agent selects Coach on the form
+    const p = new URLSearchParams();
+    if (D.agent) p.set('multi_select2__1', D.agent);
+    if (coach)   p.set('single_select_mkmxz7hc', coach);
+    p.set('label__1', 'SAVE VIA PHONE');
+    if (D.today) p.set('date4', D.today);
+    if (D.link)  p.set('e__link__1', D.link);
+    openMondayFormModal({ id:'ctk-cs-wrap', title:'Same Day Cancel Save', color:'#B00020',
+      url: CS_FORM_URL, params:p, chip  });
+  }
+
+  // ---------- Rep to Result ----------
+  function showRepToResultForm(chip){
+    const D = collectOBData();
+    const p = new URLSearchParams();
+    if (D.agent)     p.set('name', D.agent);
+    p.set('multi_select7r2xra4b', 'Rep to Result');
+    p.set('multi_selectxupu03ur', 'Confirmation');
+    if (D.territory) p.set('territory_7_3_23', D.territory);
+    if (D.link)      p.set('text', D.link);
+    if (D.apptLocal) p.set('date4', D.apptLocal.slice(0,10));
+    openMondayFormModal({ id:'ctk-rtr-wrap', title:'Rep to Result', color:'#0F766E',
+      url: ARC_FORM_URL, params:p, chip });
+  }
+
+  // ---------- Appt Result Change ----------
+  function showApptResultChangeForm(chip){
+    const D = collectOBData();
+    const p = new URLSearchParams();
+    if (D.agent)     p.set('name', D.agent);
+    p.set('multi_select7r2xra4b', 'Appointment Result Change');
+    p.set('multi_selectxupu03ur', 'Confirmation');
+    if (D.territory) p.set('territory_7_3_23', D.territory);
+    if (D.link)      p.set('text', D.link);
+    if (D.apptLocal) p.set('date4', D.apptLocal.slice(0,10));
+    openMondayFormModal({ id:'ctk-arc-wrap', title:'Appt Result Change', color:'#B45309',
+      url: ARC_FORM_URL, params:p, chip  });
+  }
+
+  // ---------- Cancelled Assigned Lead ----------
+  function showCancelledLeadForm(chip){
+    const base = collectLeadData();
+    const D = collectOBData();
+
+    let hoFirst = base.firstName || '', hoLast = '';
+    const fullNm = (document.querySelector('#leadinformation a')?.textContent || '').replace(/\s+/g,' ').trim();
+    if (fullNm){
+      const parts = fullNm.replace(/\s*\+\s*$/,'').split(' ').filter(Boolean);
+      if (parts.length > 1){ hoFirst = hoFirst || parts[0]; hoLast = parts[parts.length-1]; }
+      else { hoLast = parts[0] || ''; }
+    }
+
+    const KNOWN = Object.keys(CAL_TERRITORY_MAP);
+    const storeRaw = ((document.querySelector('#selectedstorename')?.textContent || '') + ' ' + (base.storeName || '')).replace(/\u00a0/g,' ');
+    const storeLong = KNOWN.find(k => storeRaw.toLowerCase().includes(k.toLowerCase())) || '';
+    const territory = CAL_TERRITORY_MAP[storeLong] || '';
+
+    let apptTime = '';
+    if (D.apptLocal){
+      let [h, m] = D.apptLocal.slice(11).split(':').map(Number);
+      const ap = h >= 12 ? 'PM' : 'AM';
+      let h12 = h % 12; if (h12 === 0) h12 = 12;
+      const guess = `${h12}:${String(m).padStart(2,'0')} ${ap}`;
+      if (CAL_APPT_TIMES.includes(guess)) apptTime = guess;
+    }
+
+    let lastMin = '';
+    if (D.apptLocal){
+      const mins = (new Date(D.apptLocal) - new Date()) / 60000;
+      lastMin = (mins >= 0 && mins <= 60) ? 'YES' : 'NO';
+    }
+
+    const p = new URLSearchParams();
+    if (D.agent)   p.set('dropdown', D.agent);
+    if (hoFirst)   p.set('short_textsky24kzc', hoFirst);
+    if (hoLast)    p.set('short_textbnnhvcn5', hoLast);
+    if (territory) p.set('dup__of_territory', territory);
+    p.set('name', 'Not Assigned');
+    if (apptTime)  p.set('appt_time6', apptTime);
+    if (lastMin)   p.set('status3', lastMin);
+    p.set('dropdown2', 'no');
+    if (D.today)   p.set('date4', D.today);
+    if (D.link)    p.set('link', D.link);
+
+    openMondayFormModal({ id:'ctk-cal-wrap', title:'Cancelled Assigned Lead', color:'#6B21A8',
+      url: CAL_FORM_URL, params:p, chip  });
+  }
+  // =================== end Cancelled Assigned Lead ===================
+
+
+
+
 
   // v6.2.1 — "MSG Confirm" Quick Copy tile: invoke Enable+'s own Message-Confirm
   // control so it logs exactly like a manual click (the "Message Confirm - <appt>"
@@ -844,16 +1162,7 @@ NOTE: Replying STOP will only unsubscribe you from text messages, it will not ca
       body.appendChild(warn);
     }
 
-    // v6.2.4 — MSG Confirm moved to the top: one click runs Enable+'s Message-Confirm AND opens a pre-filled monday form to submit
-    const msgConfirmBtn = document.createElement('button');
-    msgConfirmBtn.type = 'button';
-    msgConfirmBtn.className = 'ctk-btn ctk-msgconfirm-btn';
-    msgConfirmBtn.textContent = 'MSG Confirm';
-    msgConfirmBtn.title = 'One click: confirms this lead in Enable+ (native Message-Confirm) AND opens a pre-filled monday form to submit';
-    msgConfirmBtn.style.cssText = 'display:block;width:calc(100% - 24px);margin:12px 12px 0 12px;min-height:46px;height:auto;padding:8px 10px;line-height:1.15;font-weight:900;cursor:pointer;-webkit-appearance:none;appearance:none;background:#009612 !important;background-image:none;color:#fff !important;border:1px solid #0b7d10 !important;border-radius:6px;';
-    msgConfirmBtn.addEventListener('click', () => doEnableMsgConfirm(msgConfirmBtn));
-    body.appendChild(msgConfirmBtn);
-
+    // v6.3.0 — MSG Confirm button removed; replaced by Pull Up Form button at the bottom
 
     // Manager message
     const msgBox=document.createElement('div'); msgBox.className='mgr-msg-box';
@@ -886,6 +1195,63 @@ NOTE: Replying STOP will only unsubscribe you from text messages, it will not ca
     // v6.2.4 — MSG Confirm moved out of Quick Copy to the top button (see above)
 
     body.appendChild(quickLabel); body.appendChild(chips);
+
+    // v6.5.0 — Quick Forms: same chip styling as Quick Copy, sits directly beneath it
+    const formsLabel = document.createElement('div');
+    formsLabel.className = 'quick-label';
+    formsLabel.textContent = 'Quick Forms';
+    const formChips = document.createElement('div');
+    formChips.className = 'quick-chips';
+
+    const puChip = document.createElement('div');
+    puChip.className = 'quick-chip ctk-pullup-chip';
+    puChip.textContent = 'Pull Up Form';
+    puChip.title = 'Open a pre-filled Pull Up Request for this lead';
+    puChip.style.cssText = 'background:#0B4DA2;color:#fff;border-color:#093c7d;font-weight:800;';
+    puChip.addEventListener('click', () => { showPullUpForm(puChip); playSound(); });
+    formChips.appendChild(puChip);
+
+    const obChip = document.createElement('div');
+    obChip.className = 'quick-chip ctk-ob-chip';
+    obChip.textContent = 'OB Form';
+    obChip.title = 'Open a pre-filled OB Set submission for this lead';
+    obChip.style.cssText = 'background:#0E7A0D;color:#fff;border-color:#0b5f0a;font-weight:800;';
+    obChip.addEventListener('click', () => { showOBForm(obChip); playSound(); });
+    formChips.appendChild(obChip);
+
+    const csChip = document.createElement('div');
+    csChip.className = 'quick-chip ctk-cs-chip';
+    csChip.textContent = 'Cancel Save';
+    csChip.title = 'Open a pre-filled Same Day Cancel Save for this lead';
+    csChip.style.cssText = 'background:#B00020;color:#fff;border-color:#8a0018;font-weight:800;';
+    csChip.addEventListener('click', () => { showCancelSaveForm(csChip); playSound(); });
+    formChips.appendChild(csChip);
+
+    const calChip = document.createElement('div');
+    calChip.className = 'quick-chip ctk-cal-chip';
+    calChip.textContent = 'Cancelled Lead';
+    calChip.title = 'Open a pre-filled Cancelled Assigned Lead form for this lead';
+    calChip.style.cssText = 'background:#6B21A8;color:#fff;border-color:#55198a;font-weight:800;';
+    calChip.addEventListener('click', () => { showCancelledLeadForm(calChip); playSound(); });
+    formChips.appendChild(calChip);
+
+    const arcChip = document.createElement('div');
+    arcChip.className = 'quick-chip ctk-arc-chip';
+    arcChip.textContent = 'Result Change';
+    arcChip.title = 'Open a pre-filled Appointment Result Change request for this lead';
+    arcChip.style.cssText = 'background:#B45309;color:#fff;border-color:#8a3f07;font-weight:800;';
+    arcChip.addEventListener('click', () => { showApptResultChangeForm(arcChip); playSound(); });
+    formChips.appendChild(arcChip);
+
+    const rtrChip = document.createElement('div');
+    rtrChip.className = 'quick-chip ctk-rtr-chip';
+    rtrChip.textContent = 'Rep to Result';
+    rtrChip.title = 'Open a pre-filled Rep to Result request for this lead';
+    rtrChip.style.cssText = 'background:#0F766E;color:#fff;border-color:#0b5a54;font-weight:800;';
+    rtrChip.addEventListener('click', () => { showRepToResultForm(rtrChip); playSound(); });
+    formChips.appendChild(rtrChip);
+
+    body.appendChild(formsLabel); body.appendChild(formChips);
 
     // Notepad
     const noteToggle=document.createElement('div'); noteToggle.className='note-toggle'; noteToggle.innerHTML=`<span>Notepad</span><span class="note-chevron">${notesOpen?'▼':'▶'}</span>`;
@@ -938,6 +1304,8 @@ NOTE: Replying STOP will only unsubscribe you from text messages, it will not ca
       sections.appendChild(section);
     });
     body.appendChild(sections);
+
+    // v6.5.0 — Pull Up Form moved up into the new "Quick Forms" section (see above)
 
     // Footer
     const footer=document.createElement('div'); footer.className='footer';
