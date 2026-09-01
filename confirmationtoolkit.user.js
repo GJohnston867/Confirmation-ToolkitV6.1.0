@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Confirmation Text Toolkit 6.2
 // @namespace    http://tampermonkey.net/
-// @version      7.3.1
+// @version      7.3.2
 // @description  Date/time regex fixes, emoji-safe copy, SMS Safe toggle, Dracula theme, draggable launcher + free resize + Pull Up Form button (bottom) linking to the monday Pull Up Request form.
 // @author       Hammad (maintained by RBA Central NJ)
 // @updateURL    https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
@@ -23,7 +23,7 @@
 
 (function () {
   'use strict';
-  const CTK_VER = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) ? GM_info.script.version : '7.3.1';
+  const CTK_VER = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) ? GM_info.script.version : '7.3.2';
   console.log('✅ Confirmation Toolkit v' + CTK_VER + ' loading…');
 
   const FEEDBACK_FORM_URL   = 'https://app.tinypulse.com';
@@ -471,8 +471,8 @@
     showMsgConfirmModal(function(){
       btn.click();                 // Enable+ native Message-Confirm (logs it, same as clicking by hand)
       playSound();
-      // v6.2.4 — one click also pushes this lead to the monday.com board
-      sendToMonday(chip);          // drives button status: Sending… → ✓ Confirmed + Sent / ✕ Failed
+      // v7.3.2 — confirm only; do NOT open the monday form
+      if(chip){ chip.classList.add('copied'); chip.textContent='✓ Confirmed'; setTimeout(function(){ chip.classList.remove('copied'); chip.textContent=orig; },1600); }
     });
   }
 
@@ -498,7 +498,7 @@
       +     (addr ? ('<div style="color:#333;font-size:12px;">' + addr + '</div>') : '')
       +     ((store||agent) ? ('<div style="color:#333;font-size:12px;">' + (store ? ('Store: ' + store) : '') + (store&&agent ? ' • ' : '') + (agent||'') + '</div>') : '')
       +   '</div>'
-      +   '<div style="color:#5C3D00;background:#FFF3CD;border:1px solid #F0A500;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:700;">This writes to the lead — logs the Message Confirm + note (just like clicking by hand), then opens a pre-filled monday form for you to submit.</div>'
+      +   '<div style="color:#5C3D00;background:#FFF3CD;border:1px solid #F0A500;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:700;">This logs the Message Confirm in Enable+. Don’t forget to post your note and send the text before hitting MSG Confirm.</div>'
       + '</div>'
       + '<div style="display:flex;gap:10px;justify-content:flex-end;padding:12px 14px;background:#E6EED1;border-top:1px solid #cdd3b8;">'
       +   '<button id="ctk-mc-cancel" style="font-family:inherit;font-weight:900;font-size:13px;border-radius:6px;cursor:pointer;padding:9px 14px;border:1px solid #7A7A7A;background:#DFDFDF;color:#000;box-shadow:inset 1px 1px #fff, inset -1px -1px #4a4a4a;">Cancel</button>'
@@ -741,7 +741,7 @@
   // detected store name, so ONLY that market sees its override; every other store keeps the default template text.
   const STORE_TEMPLATE_OVERRIDES = {
     toronto: {
-      'Cancel/Resch': `Totally understand if that date doesn't work. Just a quick reminder: this month, you can save $500 on any entry door, patio door, or window with our Mix and Match Savings Event. If you purchase any two entry or patio doors, you'll save $1,000. Or, if you replace an entry door, a patio door, and windows, you'll save $2,000. I have openings tomorrow at 10:00 AM and 2:00 PM. Which time works better for you?`
+      'Cancel/Resch': `Totally understand if this date doesn't work. Quick reminder, this month Buy 1 Get 1 40% Off! Plus No Payments, No Interest for 12 Months. If you need to reschedule, I have tomorrow at 10 AM or 2 PM open. Which works better?`
     }
   };
   const fuzzyPhone=(store)=>storePhoneMap[store]||'513-991-7207';
@@ -842,7 +842,7 @@ NOTE: Replying STOP will only unsubscribe you from text messages, it will not ca
 `Thank You|Renewal by Andersen: Thank you for confirming your upcoming appointment with Renewal by Andersen. Please keep in mind this is an in home consultation. We estimate the visit to last between 60-90 minutes and we would be unable to fix or service existing units. If you need to reschedule or modify your appointment, please contact us at ${phoneNumber}. Otherwise, your appointment will remain as scheduled.
 
 We also have an opening in your area today, if you are home and available, feel free to let us know and we'll get you rescheduled with a design consultant today!`,
-`Cancel/Resch|Totally understand if this date doesn't work. Quick reminder, this month you Save $325 on Windows & $879 on Doors + a Free Upgrade to SmartSun Glass, plus no money down, no interest & no payments for 1 year. If you need to reschedule, I have tomorrow at 10 AM or 2 PM open. Which works better?`,
+`Cancel/Resch|Totally understand if this date doesn't work. Quick reminder, this month you save $365 on Windows & $900 on Doors +No Interest for 3 Years. If you need to reschedule, I have tomorrow at 10 AM or 2 PM open. Which works better?`,
 `Missing Info|Action Required: Before assigning your design consultant, we need to verify some details about your project to ensure it fits within our scope of work and to make the best use of your time. [Enter project question when you paste into Text Request extension].`,
 `Please Call|Renewal by Andersen: Hello ${firstName || 'there'}, this is Renewal by Andersen reaching out in regards to your upcoming scheduled appointment. We would need to speak with you briefly regarding your appointment. Please give us a call at ${phoneNumber}.
 NOTE: Replying STOP will only unsubscribe you from text messages, it will not cancel your appointment. To reschedule or cancel, please call us at ${phoneNumber}`
@@ -1252,6 +1252,16 @@ NOTE: Replying STOP will only unsubscribe you from text messages, it will not ca
     formChips.appendChild(rtrChip);
 
     body.appendChild(formsLabel); body.appendChild(formChips);
+
+    // v7.3.2 — "E+ Quick Click" group (under Quick Forms): green MSG Confirm -> pop-up reminder, then Enable+ Message-Confirm (no monday form)
+    const eqcLabel=document.createElement('div'); eqcLabel.className='quick-label'; eqcLabel.textContent='E+ Quick Click';
+    const eqcChips=document.createElement('div'); eqcChips.className='quick-chips';
+    const eqcMsg=document.createElement('div'); eqcMsg.className='quick-chip'; eqcMsg.textContent='MSG Confirm';
+    eqcMsg.title='Confirm pop-up, then runs Enable+ Message-Confirm';
+    eqcMsg.style.cssText='background:#009612;color:#fff;border-color:#009612;font-weight:900;';
+    eqcMsg.addEventListener('click',()=>doEnableMsgConfirm(eqcMsg));
+    eqcChips.appendChild(eqcMsg);
+    body.appendChild(eqcLabel); body.appendChild(eqcChips);
 
     // Notepad
     const noteToggle=document.createElement('div'); noteToggle.className='note-toggle'; noteToggle.innerHTML=`<span>Notepad</span><span class="note-chevron">${notesOpen?'▼':'▶'}</span>`;
