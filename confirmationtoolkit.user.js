@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Confirmation Text Toolkit 6.2
 // @namespace    http://tampermonkey.net/
-// @version      7.3.2
+// @version      7.3.7
 // @description  Date/time regex fixes, emoji-safe copy, SMS Safe toggle, Dracula theme, draggable launcher + free resize + Pull Up Form button (bottom) linking to the monday Pull Up Request form.
 // @author       Hammad (maintained by RBA Central NJ)
 // @updateURL    https://raw.githubusercontent.com/GJohnston867/Confirmation-ToolkitV6.1.0/main/confirmationtoolkit.user.js
@@ -23,7 +23,7 @@
 
 (function () {
   'use strict';
-  const CTK_VER = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) ? GM_info.script.version : '7.3.2';
+  const CTK_VER = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) ? GM_info.script.version : '7.3.7';
   console.log('✅ Confirmation Toolkit v' + CTK_VER + ' loading…');
 
   const FEEDBACK_FORM_URL   = 'https://app.tinypulse.com';
@@ -834,16 +834,18 @@
     const {date:apptDate,time:apptTime}=splitAppt(apptText);
 
     const msgsText = [
-`SD/ND Remind|Renewal by Andersen: This is a friendly reminder about our upcoming meeting. We'll arrive promptly on ${apptText} to discuss your project.
-NOTE: Replying STOP will only unsubscribe you from text messages, it will not cancel your appointment. To reschedule or cancel, please call us at ${phoneNumber}`,
+`SD/ND Remind|Renewal by Andersen: This is a friendly reminder about our upcoming meeting. We'll arrive promptly on ${apptDate} at ${apptTime} to discuss your project at ${fullAddress || '[address]'}.
+NOTE: Replying STOP will only unsubscribe you from text messages.`,
 `Reply Text|Renewal by Andersen: Hi ${firstName || 'there'}! You have an appointment scheduled with Renewal by Andersen on ${apptText} at ${fullAddress || '[address]'}.
 Please reply "C" to confirm.
-NOTE: Replying STOP will only unsubscribe you from text messages, it will not cancel your appointment. To reschedule or cancel, please call us at ${phoneNumber}`,
+NOTE: Replying STOP will only unsubscribe you from text messages.`,
 `Thank You|Renewal by Andersen: Thank you for confirming your upcoming appointment with Renewal by Andersen. Please keep in mind this is an in home consultation. We estimate the visit to last between 60-90 minutes and we would be unable to fix or service existing units. If you need to reschedule or modify your appointment, please contact us at ${phoneNumber}. Otherwise, your appointment will remain as scheduled.
 
 We also have an opening in your area today, if you are home and available, feel free to let us know and we'll get you rescheduled with a design consultant today!`,
 `Cancel/Resch|Totally understand if this date doesn't work. Quick reminder, this month you save $365 on Windows & $900 on Doors +No Interest for 3 Years. If you need to reschedule, I have tomorrow at 10 AM or 2 PM open. Which works better?`,
 `Missing Info|Action Required: Before assigning your design consultant, we need to verify some details about your project to ensure it fits within our scope of work and to make the best use of your time. [Enter project question when you paste into Text Request extension].`,
+`SD/ND Espanol|Este es Renewal by Andersen. Este es un recordatorio amistoso sobre nuestra próxima reunión. Llegaremos puntualmente el ${apptDate} a las ${apptTime} para hablar sobre su proyecto en ${fullAddress || '[dirección]'}.
+NOTA: Responder STOP solo cancelará la suscripción a los mensajes de texto.`,
 `Please Call|Renewal by Andersen: Hello ${firstName || 'there'}, this is Renewal by Andersen reaching out in regards to your upcoming scheduled appointment. We would need to speak with you briefly regarding your appointment. Please give us a call at ${phoneNumber}.
 NOTE: Replying STOP will only unsubscribe you from text messages, it will not cancel your appointment. To reschedule or cancel, please call us at ${phoneNumber}`
     ];
